@@ -75,6 +75,9 @@ def classify_words(sentences):
 
     return classifications
 
+def verse_tokenize(contents):
+    return [item for v in contents.values() for item in v]
+
 def sentence_tokenize(contents):
     # Tokenize the string into sentences
     return sent_tokenize(contents)
@@ -90,7 +93,7 @@ def words_tokenize(sentences):
     return words
 
 def get_bible_contents(book, start_chapter, start_verse, end_chapter, end_verse):
-    file_name = "output.json"  # Update with the actual file name
+    file_name = "outputV2.json"  # Update with the actual file name
 
     # Read the JSON file
     with open(file_name, "r") as file:
@@ -111,37 +114,65 @@ def get_bible_contents(book, start_chapter, start_verse, end_chapter, end_verse)
     if not (start_chapter <= end_chapter <= num_chapters):
         print(f"Invalid ending chapter: {end_chapter}")
         return None
-
-    start_chapter_data = book_data[str(start_chapter)]
+    start_chapter_data = book_data[str(start_chapter)]["verses"]
     num_verses_start = len(start_chapter_data)
 
     if not (1 <= start_verse <= num_verses_start):
         print(f"Invalid starting verse: {start_verse}")
         return None
 
-    end_chapter_data = book_data[str(end_chapter)]
+    end_chapter_data = book_data[str(end_chapter)]["verses"]
     num_verses_end = len(end_chapter_data)
 
     if not (1 <= end_verse <= num_verses_end):
         print(f"Invalid ending verse: {end_verse}")
         return None
 
+    data = {}
+
     contents = ""
 
-    for chapter in range(start_chapter, end_chapter + 1):
+    for chapter in range(start_chapter, end_chapter + 1): 
         chapter_data = book_data.get(str(chapter))
 
         if chapter_data is None:
             print(f"Invalid chapter selection: {chapter}")
             continue
 
-        for verse in range(start_verse, end_verse + 1):
-            verse_content = chapter_data[verse - 1]
+        if chapter == end_chapter:
+            currentEndVerse = end_verse + 1
+        else:
+            currentEndVerse = len(chapter_data["verses"])
+        
+        if chapter == start_chapter:
+            currentStartVerse = start_verse
+        else:
+            currentStartVerse = 1
+
+        data[str(chapter)] = []
+
+        for verse in range(currentStartVerse, currentEndVerse):
+
+            verse_content = chapter_data["verses"][verse - 1]
 
             if verse_content is None:
                 print(f"Invalid verse selection: {chapter}:{verse}")
                 continue
 
+            data[str(chapter)].append(verse_content)
+            #contents += verse_content + " "
+
+    return data
+    #return contents.strip()
+
+def stringify_bible_contents(content):
+    contents = ""
+
+    for k, v in content.items(): 
+        chapter_data = content.get(k)
+
+        for verse in v:
+            verse_content = verse
             contents += verse_content + " "
 
     return contents.strip()
@@ -180,14 +211,14 @@ def perform_network_analysis(tokens):
 
     return edges
 
-def perform_sentiment_analysis(tokens):
+def perform_sentiment_analysis(items):
     # Initialize the sentiment analyzer
     analyzer = SentimentIntensityAnalyzer()
 
     # Calculate sentiment scores for each token
     sentiment_scores = []
-    for token in tokens:
-        sentiment_score = analyzer.polarity_scores(token)
+    for item in items:
+        sentiment_score = analyzer.polarity_scores(item)
         sentiment_scores.append(sentiment_score)
 
     return sentiment_scores
@@ -352,7 +383,7 @@ def visualize_sentiment_plot(sentiment_scores):
                   colors=['green', 'red', 'blue'])
 
     # Set plot properties
-    plt.xlabel('Word Index')
+    plt.xlabel('Index')
     plt.ylabel('Sentiment Score')
     plt.title('Sentiment Analysis')
     plt.legend(loc='upper left')
@@ -374,6 +405,8 @@ def process_book_range():
     parser.add_argument('--heatmap', action='store_true', help='Generate a heatmap to visualize the co-occurrence or similarity matrix between words.')
     parser.add_argument('--network_graph', action='store_true', help='Generate a network graph to visualize the connections between word entities.')
     parser.add_argument('--sentiment', action='store_true', help='Generate a sentiment plot')
+    parser.add_argument('--sentence', action='store_true', help='Uses the sentence scope with the visualization')
+    parser.add_argument('--verses', action='store_true', help='Uses the verse scope with the visualization')
     
     args = parser.parse_args()
     book = args.book
@@ -403,11 +436,17 @@ def process_book_range():
         print(f"Processing book: {book}")
         print(f"Verse range: {start_chapter}:{start_verse} - {end_chapter}:{end_verse}")
 
-        bible_contents = get_bible_contents(book, start_chapter, start_verse, end_chapter, end_verse)
+        bible_contents_dict = get_bible_contents(book, start_chapter, start_verse, end_chapter, end_verse)
+        bible_contents = stringify_bible_contents(bible_contents_dict)
 
         if bible_contents:
-            sentences = sentence_tokenize(bible_contents)
-            tokens = words_tokenize(sentences)
+            if args.verses:
+                verses = verse_tokenize(bible_contents_dict)
+            if not args.verses:
+                sentences = sentence_tokenize(bible_contents)
+
+                if not args.sentence:
+                    tokens = words_tokenize(sentences)
 
             # Perform visualization based on the specified flag
             if visualization == 'n_freqs':
@@ -429,8 +468,13 @@ def process_book_range():
                 edges = perform_network_analysis(tokens)
                 visualize_network_graph(edges)
             elif visualization == 'sentiment':
-                # Perform sentiment analysis and pass the sentiment scores to visualize_sentiment_plot function
-                sentiment_scores = perform_sentiment_analysis(tokens)
+                if args.sentence:
+                    sentiment_scores = perform_sentiment_analysis(sentences)
+                elif args.verses:
+                    sentiment_scores = perform_sentiment_analysis(verses)
+                else:
+                    # Perform sentiment analysis and pass the sentiment scores to visualize_sentiment_plot function
+                    sentiment_scores = perform_sentiment_analysis(tokens)
                 visualize_sentiment_plot(sentiment_scores)
             else:
                 print("Invalid visualization method!")
